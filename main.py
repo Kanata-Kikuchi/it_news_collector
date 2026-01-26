@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 import os
 import json
 import time
@@ -6,15 +9,16 @@ from datetime import datetime, timezone
 import feedparser
 import requests
 
+
+# =========================
+# 環境変数
+# =========================
 NOTION_TOKEN = os.getenv("NOTION_TOKEN")
 NOTION_DATABASE_ID = os.getenv("NOTION_DATABASE_ID")
+DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")
 
 NOTION_API_BASE = "https://api.notion.com/v1"
 NOTION_VERSION = "2022-06-28"
-
-HN_RSS_URL = "https://news.ycombinator.com/rss"
-
-DEEPL_API_KEY = os.getenv("DEEPL_API_KEY")
 
 
 def require_env(name, value):
@@ -22,17 +26,43 @@ def require_env(name, value):
         raise RuntimeError(f"Missing env var: {name}")
     return value
 
-# 起動時にチェック
+
+# 起動時にチェック（ここで落ちるのは「設定が無い」時だけ）
 NOTION_TOKEN = require_env("NOTION_TOKEN", NOTION_TOKEN)
 NOTION_DATABASE_ID = require_env("NOTION_DATABASE_ID", NOTION_DATABASE_ID)
 DEEPL_API_KEY = require_env("DEEPL_API_KEY", DEEPL_API_KEY)
 
 
+# =========================
+# RSS ソース（各3件）
+# InfoQ は不安定になりがちなので、代替として The Register を採用
+# =========================
+SOURCES = [
+    # 開発者コミュニティ発：スタートアップ／OSS／技術トレンドの一次情報
+    {"name": "Hacker News", "rss": "https://news.ycombinator.com/rss", "limit": 3},
+
+    # 深掘り系テックメディア：OS・セキュリティ・インフラ・ハードウェアに強い
+    {"name": "Ars Technica", "rss": "https://feeds.arstechnica.com/arstechnica/index", "limit": 3},
+
+    # ITビジネス／スタートアップ動向：資金調達・企業ニュース寄り
+    {"name": "TechCrunch", "rss": "https://techcrunch.com/feed/", "limit": 3},
+
+    # 研究・AI・未来技術寄り：論文背景や長期的インパクトを解説
+    {"name": "MIT Technology Review", "rss": "https://www.technologyreview.com/topnews.rss", "limit": 3},
+
+    # 実務・インフラ・業界ゴシップ：運用／クラウド／企業ITの現実的な話題
+    {"name": "The Register", "rss": "https://www.theregister.com/headlines.atom", "limit": 3},
+]
+
+
+
+# =========================
+# DeepL 翻訳（見出しだけ）
+# =========================
 def translate_en_to_ja(text):
     if not text:
         return ""
 
-    # Free / Pro の自動判別（安全）
     if DEEPL_API_KEY.strip().endswith(":fx"):
         url = "https://api-free.deepl.com/v2/translate"
     else:
@@ -57,9 +87,8 @@ def translate_en_to_ja(text):
     return r.json()["translations"][0]["text"]
 
 
-
 # =========================
-# Notion 共通
+# Notion
 # =========================
 def notion_headers():
     return {
@@ -91,9 +120,6 @@ def already_posted(url):
     return len(notion_query_by_url(url)) > 0
 
 
-# =========================
-# 日付処理
-# =========================
 def to_date_iso(entry):
     if getattr(entry, "published_parsed", None):
         dt = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
@@ -103,10 +129,7 @@ def to_date_iso(entry):
     return datetime.now().date().isoformat()
 
 
-# =========================
-# Notion ページ作成
-# =========================
-def create_news_page(title, url, published_iso, source_text, summary_short, body_text):
+def create_news_page(title, url, published_iso, source_text, body_text):
     payload = {
         "parent": {"database_id": NOTION_DATABASE_ID},
         "properties": {
@@ -114,7 +137,6 @@ def create_news_page(title, url, published_iso, source_text, summary_short, body
             "Source": {"rich_text": [{"text": {"content": source_text}}]},
             "URL": {"url": url},
             "Published": {"date": {"start": published_iso}},
-            "Summary": {"rich_text": [{"text": {"content": summary_short}}]},
         },
         "children": [
             {
@@ -162,68 +184,84 @@ def create_news_page(title, url, published_iso, source_text, summary_short, body
 
 
 # =========================
-# Hacker News RSS
+# RSS（止まらない）
 # =========================
-def fetch_hn_entries(limit=5):
-    feed = feedparser.parse(HN_RSS_URL)
+def fetch_entries(rss_url, limit=3):
+    feed = feedparser.parse(rss_url)
 
     if feed.bozo:
-        raise RuntimeError(f"RSS parse error: {feed.bozo_exception}")
+        # RSSが壊れてても止めない
+        print(f"[WARN] RSS parse failed: {rss_url} -> {feed.bozo_exception}")
+        return []
 
     return (feed.entries or [])[:limit]
 
 
 # =========================
-# main
+# main（止まらない）
 # =========================
 def main():
-    entries = fetch_hn_entries(limit=5)
-
     posted = 0
     skipped = 0
 
-    for e in entries:
-        title_en = e.get("title", "").strip() or "Untitled"
-        url = e.get("link", "").strip()
-        if not url:
-            continue
+    for src in SOURCES:
+        source_name = src["name"]
+        rss_url = src["rss"]
+        limit = src.get("limit", 3)
 
-        if already_posted(url):
-            skipped += 1
-            continue
+        print(f"\n=== Fetch: {source_name} ===\n{rss_url}")
 
-        published_iso = to_date_iso(e)
-
-        # --- ここで翻訳 ---
         try:
-            title_ja = translate_en_to_ja(title_en)
-            print("DEEPL OK:", title_en, "->", title_ja)
+            entries = fetch_entries(rss_url, limit=limit)
         except Exception as ex:
-            print("DEEPL FAIL:", ex)
-            title_ja = title_en
+            # fetch_entries自体が想定外に落ちても続行
+            print(f"[WARN] fetch failed: {source_name} -> {ex}")
+            continue
 
-        summary_short = title_ja[:120]
+        for e in entries:
+            try:
+                title_en = (e.get("title", "") or "").strip() or "Untitled"
+                url = (e.get("link", "") or "").strip()
+                if not url:
+                    continue
 
-        body_text = (
-            "【日本語訳（タイトル）】\n"
-            f"{title_ja}\n\n"
-            "【原文タイトル】\n"
-            f"{title_en}"
-        )
+                if already_posted(url):
+                    skipped += 1
+                    continue
 
-        create_news_page(
-            title=title_ja,          # ← Notionタイトルは日本語
-            url=url,
-            published_iso=published_iso,
-            source_text="Hacker News",
-            summary_short=summary_short,
-            body_text=body_text,
-        )
+                published_iso = to_date_iso(e)
 
-        posted += 1
-        time.sleep(0.4)
+                try:
+                    title_ja = translate_en_to_ja(title_en)
+                    print("DEEPL OK:", source_name, ":", title_en, "->", title_ja)
+                except Exception as ex:
+                    print("DEEPL FAIL:", source_name, ":", ex)
+                    title_ja = title_en
 
-    print(f"OK: posted={posted}, skipped={skipped}")
+                body_text = (
+                    "【日本語訳（見出し）】\n"
+                    f"{title_ja}\n\n"
+                    "【原文見出し】\n"
+                    f"{title_en}"
+                )
+
+                create_news_page(
+                    title=title_ja,
+                    url=url,
+                    published_iso=published_iso,
+                    source_text=source_name,
+                    body_text=body_text,
+                )
+
+                posted += 1
+                time.sleep(0.4)
+
+            except Exception as ex:
+                # 1記事単位で落ちても続行
+                print(f"[WARN] item failed: {source_name} -> {ex}")
+                continue
+
+    print(f"\nOK: posted={posted}, skipped={skipped}")
 
 
 if __name__ == "__main__":
