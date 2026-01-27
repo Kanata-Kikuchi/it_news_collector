@@ -39,11 +39,11 @@
 
 
 ## 収集メディア
-- Hacker News
-- Ars Technica
-- TechCrunch
-- MIT Technology Review
-- The Register
+- Hacker News（開発者コミュニティ発：スタートアップ／OSS／技術トレンドの一次情報）
+- Ars Technica（深掘り系テックメディア：OS・セキュリティ・インフラ・ハードウェアに強い）
+- TechCrunch（ITビジネス／スタートアップ動向：資金調達・企業ニュース寄り）
+- MIT Technology Review（研究・AI・未来技術寄り：論文背景や長期的インパクトを解説）
+- The Register（実務・インフラ・業界ゴシップ：運用／クラウド／企業ITの現実的な話題）
 
 
 ※ 運用しながら必要に応じて、メディアの追加・変更する可能性があります。
