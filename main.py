@@ -47,11 +47,17 @@ SOURCES = [
     # ITビジネス／スタートアップ動向：資金調達・企業ニュース寄り
     {"name": "TechCrunch", "rss": "https://techcrunch.com/feed/", "limit": 3},
 
-    # 研究・AI・未来技術寄り：論文背景や長期的インパクトを解説
-    {"name": "MIT Technology Review", "rss": "https://www.technologyreview.com/topnews.rss", "limit": 3},
+    # 2026/02/01 削除
+    # # 研究・AI・未来技術寄り：論文背景や長期的インパクトを解説
+    # {"name": "MIT Technology Review", "rss": "https://www.technologyreview.com/topnews.rss", "limit": 3},
 
     # 実務・インフラ・業界ゴシップ：運用／クラウド／企業ITの現実的な話題
     {"name": "The Register", "rss": "https://www.theregister.com/headlines.atom", "limit": 3},
+
+    # 2026/02/01 追加
+    # 研究・AI・未来技術寄り：Googleの一次研究・実装事例
+    {"name": "Google AI Blog", "rss": "https://blog.research.google/feeds/posts/default", "limit": 3},
+
 ]
 
 
